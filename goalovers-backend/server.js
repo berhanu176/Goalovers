@@ -6,44 +6,44 @@ const helmet = require("helmet");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(helmet());
-app.use(express.json());
+// Set FRONTEND_ORIGIN in deployment, for example:
+// https://your-goalovers-site.netlify.app
+const allowedOrigin = process.env.FRONTEND_ORIGIN;
 
-const allowedOrigins = (process.env.FRONTEND_ORIGIN || "")
-  .split(",")
-  .map(origin => origin.trim())
-  .filter(Boolean);
+app.use(helmet());
+app.use(express.json({ limit: "10kb" }));
 
 app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-    return callback(new Error("Origin not allowed by CORS"));
-  }
+  origin: allowedOrigin
+    ? allowedOrigin.split(",").map(origin => origin.trim())
+    : false
 }));
 
 const matches = [
   {
-    id: "match-1",
-    homeTeam: "Arsenal",
-    awayTeam: "Chelsea",
-    kickoff: "2026-11-01T15:00:00Z"
+    id: "M101",
+    league: "Premier League • Demo",
+    home: "London FC",
+    away: "Manchester Blue",
+    kickoff: "Demo fixture"
   },
   {
-    id: "match-2",
-    homeTeam: "Barcelona",
-    awayTeam: "Real Madrid",
-    kickoff: "2026-11-02T20:00:00Z"
+    id: "M102",
+    league: "La Liga • Demo",
+    home: "Madrid Stars",
+    away: "Catalonia FC",
+    kickoff: "Demo fixture"
   },
   {
-    id: "match-3",
-    homeTeam: "Liverpool",
-    awayTeam: "Manchester City",
-    kickoff: "2026-11-03T17:30:00Z"
+    id: "M103",
+    league: "Champions Cup • Demo",
+    home: "Munich Red",
+    away: "Paris City",
+    kickoff: "Demo fixture"
   }
 ];
 
+// Temporary memory only. Data disappears when the server restarts.
 const predictions = [];
 
 app.get("/", (req, res) => {
@@ -63,16 +63,18 @@ app.get("/api/matches", (req, res) => {
 });
 
 app.get("/api/predictions", (req, res) => {
+  // Demo endpoint: only suitable for testing.
   res.json({ predictions });
 });
 
 app.post("/api/predictions", (req, res) => {
   const { matchId, homeScore, awayScore, nickname } = req.body || {};
 
-  const match = matches.find(item => item.id === matchId);
-
-  if (!match) {
-    return res.status(400).json({ error: "Invalid match." });
+  if (
+    typeof matchId !== "string" ||
+    !matches.some(match => match.id === matchId)
+  ) {
+    return res.status(400).json({ error: "Invalid demo match." });
   }
 
   if (
@@ -84,34 +86,42 @@ app.post("/api/predictions", (req, res) => {
     awayScore > 20
   ) {
     return res.status(400).json({
-      error: "Scores must be whole numbers from 0 to 20."
+      error: "Scores must be whole numbers between 0 and 20."
     });
   }
 
-  const safeNickname = String(nickname || "Guest")
-    .replace(/[<>]/g, "")
-    .trim()
-    .slice(0, 24) || "Guest";
+  const safeNickname =
+    typeof nickname === "string"
+      ? nickname.trim().replace(/[<>]/g, "").slice(0, 24)
+      : "Demo Player";
 
+  // This API intentionally has no real user authentication.
+  // It is for prototype testing only.
   const duplicate = predictions.some(
-    prediction =>
-      prediction.matchId === matchId &&
-      prediction.nickname === safeNickname
+    item => item.matchId === matchId &&
+            item.nickname === safeNickname
   );
 
   if (duplicate) {
     return res.status(409).json({
-      error: "This demo nickname already submitted for this match."
+      error: "This demo player already submitted for this match."
     });
   }
 
-  const prediction = {
-    id: String(Date.now()),
-    matchId,
-    nickname: safeNickname,
-    homeScore,
-    awayScore
-  };
+  const match = matches.find(item => item.id === matchId);
+
+  const submittedAtMs = Date.now();
+
+const prediction = {
+  id: `DEMO-${submittedAtMs}-${Math.random().toString(36).slice(2, 8)}`,
+  matchId,
+  match: `${match.home} vs ${match.away}`,
+  nickname: safeNickname || "Demo Player",
+  homeScore,
+  awayScore,
+  createdAt: new Date(submittedAtMs).toISOString(),
+  submittedAtMs
+};
 
   predictions.push(prediction);
 
@@ -119,6 +129,10 @@ app.post("/api/predictions", (req, res) => {
     message: "Demo prediction saved.",
     prediction
   });
+});
+
+app.use((req, res) => {
+  res.status(404).json({ error: "Endpoint not found." });
 });
 
 app.listen(PORT, "0.0.0.0", () => {
